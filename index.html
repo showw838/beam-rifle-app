@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beam Rifle Score Analyzer</title>
+    <!-- Tesseract.js v5 -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Load OpenCV.js (async to avoid blocking) -->
+    <script src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js" onload="window.ocvReady = true;"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- PeerJS for WebRTC sync -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- Connection & Mode UI -->
+        <div id="syncPanel" style="background: var(--panel-bg); padding: 15px; border-radius: 12px; margin-bottom: 20px; text-align: center; border: 1px solid var(--border-color);">
+            <div style="margin-bottom: 15px;">
+                <span style="margin-right: 20px; font-weight: bold; color: var(--primary-color);">動作モード:</span>
+                <label style="cursor: pointer; margin-right: 20px;"><input type="radio" name="appMode" value="camera" checked> 📱 スマホ単体／スキャナー (送信)</label>
+                <label style="cursor: pointer;"><input type="radio" name="appMode" value="monitor"> 💻 PCモニター (受信)</label>
+            </div>
+            
+            <div id="cameraConnectionUI" style="display: block;">
+                <button id="hostBtn" class="btn primary" style="padding: 8px 20px; border-radius: 20px; background: #3a3a3a; color: white;">PC用PINコードを発行</button>
+                <span id="hostPinDisplay" style="margin-left: 15px; font-weight: bold; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; color: #aaa;"></span>
+            </div>
+            
+            <div id="monitorConnectionUI" style="display: none;">
+                <input type="text" id="joinPinInput" placeholder="4桁PIN" style="padding: 8px; width: 100px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #222; color: white; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem;" maxlength="4">
+                <button id="joinBtn" class="btn primary" style="padding: 8px 20px; border-radius: 20px; margin-left: 10px;">接続</button>
+                <span id="joinStatus" style="margin-left: 15px; font-weight: bold; color: #aaa;"></span>
+            </div>
+        </div>
+
+        <main id="mainContent">
+            <!-- Left Column: Camera Feed -->
+            <section class="camera-section panel">
+                <h2>CAMERA FEED</h2>
+                <div class="video-container">
+                    <div id="debugError" style="display: none; position: absolute; top: 0; left: 0; z-index: 100; background: rgba(255,0,0,0.8); color: white; padding: 10px; width: 100%; box-sizing: border-box; font-size: 0.8rem; font-family: monospace;"></div>
+                    <video id="videoElement" autoplay playsinline muted></video>
+                    <canvas id="canvasElement"></canvas>
+                    <div class="overlay-ui">
+                        <button id="startBtn" class="btn primary" style="width: 120px; text-align: center;">Camera</button>
+                        <span style="margin: 0 10px; color: var(--text-muted);">OR</span>
+                        <label class="btn danger" style="cursor: pointer; width: 120px; text-align: center; margin: 0; box-sizing: border-box;">
+                            Video<input type="file" id="videoInput" accept="video/mp4,video/webm" style="display: none;">
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <div style="margin-top: 1rem; border: 1px solid var(--primary-color); padding: 1rem; border-radius: 8px;">
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <label style="font-size: 0.8rem; display: flex; align-items: center;">
+                                <span style="width: 90px; flex-shrink: 0;">拡大 (Zoom):</span>
+                                <input type="range" id="zoomSlider" min="1" max="15" step="0.1" value="1" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center;">
+                                <span style="width: 90px; flex-shrink: 0;">左右移動 (X):</span>
+                                <input type="range" id="panXSlider" min="-3" max="3" step="0.01" value="0" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center;">
+                                <span style="width: 90px; flex-shrink: 0;">上下移動 (Y):</span>
+                                <input type="range" id="panYSlider" min="-3" max="3" step="0.01" value="0" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center;">
+                                <span style="width: 90px; flex-shrink: 0;">赤点しきい値:</span>
+                                <input type="range" id="redThreshold" min="0" max="255" value="150" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center;">
+                                <span style="width: 90px; flex-shrink: 0;">OCRしきい値:</span>
+                                <input type="range" id="ocrThreshold" min="0" max="255" value="160" style="flex-grow: 1;">
+                            </label>
+                        </div>
+                        <div style="margin-top: 15px; text-align: center;">
+                            <button id="toggleOcrBtn" style="padding: 10px 20px; font-size: 16px; background-color: var(--primary-color); color: #fff; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%;">▶ 読み取り開始</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="debug-panel panel">
+                    <h2>SCANNER FEED</h2>
+                    <canvas id="debugCanvas" style="width: 100%; max-height: 150px; object-fit: contain; background: #fff;"></canvas>
+                    <div id="rawOcrText" style="font-family: monospace; color: #0f0; background: #222; padding: 5px; margin-top: 5px; font-size: 12px; min-height: 20px;">Raw OCR: </div>
+                </div>
+            </section>
+
+            <!-- Middle Column: Current Score & Target -->
+            <section class="target-section panel">
+                <h2>CURRENT SHOT</h2>
+                <div class="score-display">
+                    <div class="score-label">SCORE</div>
+                    <div id="currentScore" class="score-value">0.0</div>
+                </div>
+                
+                <div class="target-graphic-container">
+                    <canvas id="virtualTarget" width="300" height="300"></canvas>
+                </div>
+            </section>
+
+            <!-- Right Column: History & Stats -->
+            <section class="history-section panel">
+                <h2>HISTORY</h2>
+                <div class="stats-overview">
+                    <div class="stat-box">
+                        <div class="stat-label">TOTAL (10)</div>
+                        <div id="totalScore" class="stat-value">0.0</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">AVERAGE</div>
+                        <div id="avgScore" class="stat-value">0.0</div>
+                    </div>
+                </div>
+                
+                <div class="history-list-container">
+                    <ul id="historyList">
+                        <!-- History items will be injected here -->
+                    </ul>
+                </div>
+                
+                <div class="actions">
+                    <button id="clearBtn" class="btn danger">Clear Data</button>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
