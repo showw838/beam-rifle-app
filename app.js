@@ -18,8 +18,20 @@ document.querySelectorAll('input[name="appMode"]').forEach(radio => {
         const isCamera = e.target.value === 'camera';
         document.getElementById('cameraConnectionUI').style.display = isCamera ? 'block' : 'none';
         document.getElementById('monitorConnectionUI').style.display = !isCamera ? 'block' : 'none';
-        document.querySelector('.camera-section').style.display = isCamera ? 'flex' : 'none';
-        document.getElementById('mainContent').style.gridTemplateColumns = isCamera ? '1fr 300px' : '1fr';
+        
+        const mainEl = document.getElementById('mainContent');
+        if (isCamera) {
+            document.querySelector('.camera-section').style.display = 'flex';
+            mainEl.style.gridTemplateColumns = ''; // Reset to CSS default (responsive)
+        } else {
+            document.querySelector('.camera-section').style.display = 'none';
+            // On PC, we want Target + History side by side when camera is hidden
+            if (window.innerWidth > 1024) {
+                mainEl.style.gridTemplateColumns = '1fr 300px';
+            } else {
+                mainEl.style.gridTemplateColumns = '';
+            }
+        }
         
         if (!isCamera && videoStream) {
             videoStream.getTracks().forEach(t => t.stop());
@@ -552,44 +564,49 @@ async function processFrames() {
                         let finalScoreStr = integerPart + "." + fractionalPart;
                         let numericValue = parseFloat(finalScoreStr);
                         
-                        if (rawEl) rawEl.innerText = `Raw Score: ${finalScoreStr} (From ${parsedDigits})`;
-                        
-                        // Send valid scores to buffer
+                        // Process numeric value
+                        let validScore = null;
                         if (!isNaN(numericValue) && numericValue > 0 && numericValue <= 10.9) {
-                            scoreBuffer.push(numericValue);
-                            if (scoreBuffer.length > 5) scoreBuffer.shift();
-                            
-                            if (scoreBuffer.length === 5) {
-                                const counts = {};
-                                let maxCount = 0;
-                                let mode = null;
-                                for (let val of scoreBuffer) {
-                                    if (val === null) continue;
-                                    counts[val] = (counts[val] || 0) + 1;
-                                    if (counts[val] > maxCount) {
-                                        maxCount = counts[val];
-                                        mode = val;
-                                    }
-                                }
-                                
-                                if (maxCount >= 3 && mode !== lastDetectedScore) {
-                                    lastDetectedScore = mode;
-                                    document.getElementById('currentScore').innerText = mode.toFixed(1);
-                                    recordShot(mode, 0); // angle is not strictly needed for the parser
-                                    
-                                    // Send score via WebRTC if connected as Camera Host
-                                    const appMode = document.querySelector('input[name="appMode"]:checked').value;
-                                    if (appMode === 'camera' && conn && conn.open) {
-                                        conn.send({ type: 'score', score: mode });
-                                    }
-                                }
-                            }
-                        } else {
-                            scoreBuffer.push(null);
+                            validScore = numericValue;
                         }
+                        
+                        scoreBuffer.push(validScore);
+                        if (rawEl) rawEl.innerText = `Raw Score: ${finalScoreStr} (From ${parsedDigits})`;
                     } else {
                         if (rawEl) rawEl.innerText = `Raw Score: ? (Not enough digits: ${parsedDigits})`;
                         scoreBuffer.push(null);
+                    }
+                    
+                    // Always shift buffer to maintain length of 5
+                    if (scoreBuffer.length > 5) scoreBuffer.shift();
+
+                    if (scoreBuffer.length === 5) {
+                        const counts = {};
+                        let maxCount = 0;
+                        let mode = null;
+                        for (let val of scoreBuffer) {
+                            if (val === null) continue;
+                            counts[val] = (counts[val] || 0) + 1;
+                            if (counts[val] > maxCount) {
+                                maxCount = counts[val];
+                                mode = val;
+                            }
+                        }
+
+                        // If screen is blank (maxCount === 0), reset lastDetectedScore so next shot can be the same number
+                        if (maxCount === 0) {
+                            lastDetectedScore = null;
+                        } else if (maxCount >= 3 && mode !== lastDetectedScore) {
+                            lastDetectedScore = mode;
+                            document.getElementById('currentScore').innerText = mode.toFixed(1);
+                            recordShot(mode, 0); // angle is not strictly needed for the parser
+                            
+                            // Send score via WebRTC if connected as Camera Host
+                            const appMode = document.querySelector('input[name="appMode"]:checked').value;
+                            if (appMode === 'camera' && conn && conn.open) {
+                                conn.send({ type: 'score', score: mode });
+                            }
+                        }
                     }
                 } else {
                     const rawEl = document.getElementById('rawOcrText');
