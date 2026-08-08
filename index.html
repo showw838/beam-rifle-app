@@ -62,16 +62,40 @@
                                 <input type="range" id="zoomSlider" min="1" max="15" step="0.1" value="1" style="flex-grow: 1;">
                             </label>
                             <label style="font-size: 0.8rem; display: flex; align-items: center;">
-                                <span style="width: 90px; flex-shrink: 0;">左右移動 (X):</span>
+                                <span style="width: 90px; flex-shrink: 0;">映像 左右(X):</span>
                                 <input type="range" id="panXSlider" min="-3" max="3" step="0.01" value="0" style="flex-grow: 1;">
                             </label>
                             <label style="font-size: 0.8rem; display: flex; align-items: center;">
-                                <span style="width: 90px; flex-shrink: 0;">上下移動 (Y):</span>
+                                <span style="width: 90px; flex-shrink: 0;">映像 上下(Y):</span>
                                 <input type="range" id="panYSlider" min="-3" max="3" step="0.01" value="0" style="flex-grow: 1;">
                             </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #00ffff;">
+                                <span style="width: 90px; flex-shrink: 0;">青枠 左右(X):</span>
+                                <input type="range" id="blueXSlider" min="0" max="1" step="0.005" value="0.1" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #00ffff;">
+                                <span style="width: 90px; flex-shrink: 0;">青枠 上下(Y):</span>
+                                <input type="range" id="blueYSlider" min="0" max="1" step="0.005" value="0.35" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #00ffff;">
+                                <span style="width: 90px; flex-shrink: 0;">青枠 サイズ:</span>
+                                <input type="range" id="blueScaleSlider" min="0.5" max="2" step="0.01" value="1" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #ff00ff;">
+                                <span style="width: 90px; flex-shrink: 0;">ピンク枠 左右(X):</span>
+                                <input type="range" id="pinkXSlider" min="0" max="1" step="0.005" value="0.55" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #ff00ff;">
+                                <span style="width: 90px; flex-shrink: 0;">ピンク枠 上下(Y):</span>
+                                <input type="range" id="pinkYSlider" min="0" max="1" step="0.005" value="0.35" style="flex-grow: 1;">
+                            </label>
+                            <label style="font-size: 0.8rem; display: flex; align-items: center; color: #ff00ff;">
+                                <span style="width: 90px; flex-shrink: 0;">ピンク枠 サイズ:</span>
+                                <input type="range" id="pinkScaleSlider" min="0.5" max="2" step="0.01" value="1" style="flex-grow: 1;">
+                            </label>
                             <label style="font-size: 0.8rem; display: flex; align-items: center;">
-                                <span style="width: 90px; flex-shrink: 0;">赤点しきい値:</span>
-                                <input type="range" id="redThreshold" min="0" max="255" value="150" style="flex-grow: 1;">
+                                <span style="width: 90px; flex-shrink: 0;">赤点感度(低←→高):</span>
+                                <input type="range" id="redThreshold" min="10" max="255" value="100" style="flex-grow: 1; direction: rtl;">
                             </label>
                             <label style="font-size: 0.8rem; display: flex; align-items: center;">
                                 <span style="width: 90px; flex-shrink: 0;">OCRしきい値:</span>

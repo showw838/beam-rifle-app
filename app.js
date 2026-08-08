@@ -83,7 +83,7 @@ document.getElementById('joinBtn').addEventListener('click', () => {
         conn.on('data', (data) => {
             if (data.type === 'score') {
                 document.getElementById('currentScore').innerText = data.score.toFixed(1);
-                recordShot(data.score, 0);
+                recordShot(data.score, data.angle || 0);
             }
         });
         
@@ -262,13 +262,14 @@ videoInput.addEventListener('change', (e) => {
     };
 });
 
-// Fixed Calibration Boxes
+// Fixed Calibration Boxes (Base Ratios)
 const scoreRect = { x: 0.1, y: 0.35, w: 0.35, h: 0.266 };
-const targetRect = { x: 0.55, y: 0.35, w: 0.35, h: 0.533 };
+const targetRect = { x: 0.55, y: 0.35, w: 0.533, h: 0.533 }; // Square for the target
 
 // Processing Loop
 let lastProcessTime = 0;
 let lastDetectedScore = null;
+let lastDetectedAngle = 0;
 const ctx = canvas.getContext('2d');
 
 async function processFrames() {
@@ -280,10 +281,10 @@ async function processFrames() {
     let zoom = parseFloat(document.getElementById('zoomSlider').value) || 1;
     let panX = parseFloat(document.getElementById('panXSlider').value) || 0;
     let panY = parseFloat(document.getElementById('panYSlider').value) || 0;
-    
+
     let vw = video.videoWidth;
     let vh = video.videoHeight;
-    
+
     if (vw > 0 && vh > 0) {
         let sw = vw / zoom;
         let sh = vh / zoom;
@@ -291,25 +292,33 @@ async function processFrames() {
         let cy = vh / 2 + (panY * (vh - sh) / 2);
         let sx = cx - sw / 2;
         let sy = cy - sh / 2;
-        
+
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     }
-    
+
     // Use Math.min to ensure boxes don't become massive on extreme aspect ratios
     // and maintain the exact physical shape they had in the portrait video.
     let baseSize = Math.min(canvas.width, canvas.height);
+
+    let blueX = parseFloat(document.getElementById('blueXSlider').value) || 0.1;
+    let blueY = parseFloat(document.getElementById('blueYSlider').value) || 0.35;
+    let blueScale = parseFloat(document.getElementById('blueScaleSlider').value) || 1;
     
-    let sX = scoreRect.x * canvas.width;
-    let sY = scoreRect.y * canvas.height;
-    let sW = scoreRect.w * baseSize;
-    let sH = scoreRect.h * baseSize;
-    
-    let tX = targetRect.x * canvas.width;
-    let tY = targetRect.y * canvas.height;
-    let tW = targetRect.w * baseSize;
-    let tH = targetRect.h * baseSize;
+    let pinkX = parseFloat(document.getElementById('pinkXSlider').value) || 0.55;
+    let pinkY = parseFloat(document.getElementById('pinkYSlider').value) || 0.35;
+    let pinkScale = parseFloat(document.getElementById('pinkScaleSlider').value) || 1;
+
+    let sX = blueX * canvas.width;
+    let sY = blueY * canvas.height;
+    let sW = scoreRect.w * baseSize * blueScale;
+    let sH = scoreRect.h * baseSize * blueScale;
+
+    let tX = pinkX * canvas.width;
+    let tY = pinkY * canvas.height;
+    let tW = targetRect.w * baseSize * pinkScale;
+    let tH = targetRect.h * baseSize * pinkScale;
 
     // Draw Static Overlays on canvas (Dashed lines)
     ctx.setLineDash([8, 8]);
@@ -339,7 +348,6 @@ async function processFrames() {
         try {
             document.getElementById('debugError').style.display = 'none';
 
-        const threshVal = parseInt(document.getElementById('redThreshold').value);
         let src = cv.imread(canvas);
         
         // Ensure rects are valid before cropping
@@ -352,65 +360,96 @@ async function processFrames() {
             let targetRoiRect = new cv.Rect(safeTX, safeTY, safeTW, safeTH);
             // Ensure width and height are valid after bounds checks
             if (targetRoiRect.width > 0 && targetRoiRect.height > 0) {
-                // --- 1. Red Dot Detection (Robust Color Difference) ---
+                // --- 1. Robust Target Center & Red Dot Detection ---
                 let rightHalf = src.roi(targetRoiRect);
+
+                // --- 1-A. Target Center is the center of the pink box ---
+                // Since the user can now manually adjust the pink box perfectly,
+                // we use the exact center of the box to avoid logos throwing off the math.
+                let targetCenter = { x: targetRoiRect.width / 2, y: targetRoiRect.height / 2 };
                 
-                let channels = new cv.MatVector();
-                cv.split(rightHalf, channels);
-                // canvas is RGBA, so R is 0, G is 1, B is 2
-                let R = channels.get(0);
-                let G = channels.get(1);
-                let B = channels.get(2);
+                // Draw center crosshair on canvas to help user align the pink box
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                // Horizontal line
+                ctx.moveTo(targetCenter.x + targetRoiRect.x - 15, targetCenter.y + targetRoiRect.y);
+                ctx.lineTo(targetCenter.x + targetRoiRect.x + 15, targetCenter.y + targetRoiRect.y);
+                // Vertical line
+                ctx.moveTo(targetCenter.x + targetRoiRect.x, targetCenter.y + targetRoiRect.y - 15);
+                ctx.lineTo(targetCenter.x + targetRoiRect.x, targetCenter.y + targetRoiRect.y + 15);
+                ctx.stroke();
                 
-                // Calculate Red Dominance: R - (G/2 + B/2)
-                let gbAvg = new cv.Mat();
-                cv.addWeighted(G, 0.5, B, 0.5, 0, gbAvg);
-                let redDiff = new cv.Mat();
-                cv.subtract(R, gbAvg, redDiff);
-                
+                // Center circle
+                ctx.beginPath();
+                ctx.arc(targetCenter.x + targetRoiRect.x, targetCenter.y + targetRoiRect.y, 4, 0, 2 * Math.PI);
+                ctx.stroke();
+
+                // --- 1-B. Find Red Dot (HSV Thresholding) ---
+                let hsv = new cv.Mat();
+                cv.cvtColor(rightHalf, hsv, cv.COLOR_RGBA2RGB);
+                cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+
+                const threshVal = parseInt(document.getElementById('redThreshold').value) || 100;
                 let mask = new cv.Mat();
-                cv.threshold(redDiff, mask, threshVal, 255, cv.THRESH_BINARY);
-                
-                // Find contours (the red dot)
+
+                let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, threshVal, threshVal, 0]);
+                let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [15, 255, 255, 0]);
+                let mask1 = new cv.Mat();
+                cv.inRange(hsv, low1, high1, mask1);
+
+                let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [165, threshVal, threshVal, 0]);
+                let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
+                let mask2 = new cv.Mat();
+                cv.inRange(hsv, low2, high2, mask2);
+
+                cv.bitwise_or(mask1, mask2, mask);
+
+                hsv.delete(); low1.delete(); high1.delete(); mask1.delete();
+                low2.delete(); high2.delete(); mask2.delete();
+
                 let contours = new cv.MatVector();
                 let hierarchy = new cv.Mat();
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                
+
                 let foundDot = false;
                 let dotCenter = { x: 0, y: 0 };
-                let targetCenter = { x: targetRoiRect.width / 2, y: targetRoiRect.height / 2 };
-                
+
                 for (let i = 0; i < contours.size(); i++) {
                     let cnt = contours.get(i);
                     let area = cv.contourArea(cnt);
-                    if (area > 5 && area < 1500) {
+                    // Dot can be tiny
+                    if (area > 2 && area < 1500) {
                         let rect = cv.boundingRect(cnt);
                         dotCenter.x = rect.x + rect.width / 2;
                         dotCenter.y = rect.y + rect.height / 2;
                         foundDot = true;
-                        
+
                         ctx.strokeStyle = '#00ff88';
                         ctx.lineWidth = 3;
                         ctx.beginPath();
                         ctx.arc(dotCenter.x + targetRoiRect.x, dotCenter.y + targetRoiRect.y, 10, 0, 2 * Math.PI);
+                        ctx.stroke();
+                        
+                        // Draw line from center to dot
+                        ctx.strokeStyle = '#ff00ff';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(targetCenter.x + targetRoiRect.x, targetCenter.y + targetRoiRect.y);
+                        ctx.lineTo(dotCenter.x + targetRoiRect.x, dotCenter.y + targetRoiRect.y);
                         ctx.stroke();
                         break;
                     }
                 }
                 
                 if (foundDot) {
-                    // Global angle based on local dot
                     const dx = dotCenter.x - targetCenter.x;
                     const dy = dotCenter.y - targetCenter.y;
-                    const angle = Math.atan2(dy, dx);
-                    
-                    // We need to pass the angle to the OCR step, which happens next
-                    src.dotAngle = angle;
+                    lastDetectedAngle = Math.atan2(dy, dx);
                 }
 
                 // Cleanup
-                rightHalf.delete(); channels.delete(); R.delete(); G.delete(); B.delete();
-                gbAvg.delete(); redDiff.delete(); mask.delete(); contours.delete(); hierarchy.delete();
+                rightHalf.delete(); contours.delete(); hierarchy.delete(); mask.delete();
             }
         }
         
@@ -599,12 +638,15 @@ async function processFrames() {
                         } else if (maxCount >= 3 && mode !== lastDetectedScore) {
                             lastDetectedScore = mode;
                             document.getElementById('currentScore').innerText = mode.toFixed(1);
-                            recordShot(mode, 0); // angle is not strictly needed for the parser
+                            
+                            // Send angle along with the score
+                            let detectedAngle = lastDetectedAngle;
+                            recordShot(mode, detectedAngle); 
                             
                             // Send score via WebRTC if connected as Camera Host
                             const appMode = document.querySelector('input[name="appMode"]:checked').value;
                             if (appMode === 'camera' && conn && conn.open) {
-                                conn.send({ type: 'score', score: mode });
+                                conn.send({ type: 'score', score: mode, angle: detectedAngle });
                             }
                         }
                     }
@@ -636,6 +678,20 @@ async function processFrames() {
 }
 
 // Data Logic
+function getRadiusFromScore(score) {
+    if (score >= 10.0) {
+        // 10.0 to 10.9: 1.0mm diameter (0.5mm radius) divided into 10 parts
+        return 0.5 * (10.9 - score) / 0.9;
+    } else if (score >= 1.0) {
+        // 1.0 to 9.9
+        let I = Math.floor(score);
+        let D = score - I;
+        let R_out = 0.5 + (10 - I) * 2.5; // Outer radius of ring I
+        return R_out - D * (2.5 / 0.9);
+    }
+    return 0; // Miss or out of bounds
+}
+
 function recordShot(score, angle) {
     const shot = {
         id: Date.now(),
@@ -643,10 +699,10 @@ function recordShot(score, angle) {
         angle: angle,
         timestamp: new Date().toISOString()
     };
-    
+
     shotHistory.push(shot);
     localStorage.setItem('beamRifleHistory', JSON.stringify(shotHistory));
-    
+
     updateUI();
 }
 
@@ -681,55 +737,58 @@ function updateUI() {
 }
 
 // Drawing the Virtual Target
-// Custom parser removed. Using Tesseract.js with blob filtering.
-
 function drawVirtualTarget() {
     const w = vTarget.width;
     const h = vTarget.height;
     const cx = w / 2;
     const cy = h / 2;
-    const maxRadius = w / 2 - 10;
-    
+    // The max physical radius we draw is the 1-point ring: 23.0mm
+    // Scale so 23.0mm fits nicely in the canvas (leaving a 10px margin)
+    const scale = (w / 2 - 10) / 23.0;
+
     vCtx.clearRect(0, 0, w, h);
-    
-    // Draw concentric circles (Baumkuchen style)
-    vCtx.fillStyle = '#0a0a0c'; // black background
+
+    // Background (White area)
+    vCtx.fillStyle = '#f0f0f5';
     vCtx.fillRect(0, 0, w, h);
-    
-    // White rings
-    for (let r = 10; r >= 1; r--) {
+
+    // Draw the black area (4-point ring and inwards)
+    // 4-point ring outer radius = 0.5 + (10-4)*2.5 = 15.5mm
+    vCtx.beginPath();
+    vCtx.arc(cx, cy, 15.5 * scale, 0, 2 * Math.PI);
+    vCtx.fillStyle = '#111';
+    vCtx.fill();
+
+    // Draw rings 1 to 10
+    vCtx.lineWidth = 1;
+    for (let i = 1; i <= 10; i++) {
+        let r_mm = (i === 10) ? 0.5 : 0.5 + (10 - i) * 2.5;
         vCtx.beginPath();
-        vCtx.arc(cx, cy, maxRadius * (r / 10), 0, 2 * Math.PI);
-        vCtx.fillStyle = (r % 2 === 0) ? '#ffffff' : '#f0f0f5';
-        if (r > 8) vCtx.fillStyle = '#111'; // outer dark area simulating actual target edge
-        vCtx.fill();
-        vCtx.strokeStyle = '#000';
-        vCtx.lineWidth = 1;
+        vCtx.arc(cx, cy, r_mm * scale, 0, 2 * Math.PI);
+        // Rings in the black area (4 and above) use white lines, outer use black lines
+        vCtx.strokeStyle = (i >= 4) ? '#fff' : '#000';
         vCtx.stroke();
     }
-    
-    // Center point
+
+    // Center dot (just a tiny visual anchor)
     vCtx.beginPath();
-    vCtx.arc(cx, cy, 2, 0, 2 * Math.PI);
+    vCtx.arc(cx, cy, 1.5, 0, 2 * Math.PI);
     vCtx.fillStyle = '#fff';
     vCtx.fill();
-    
+
     // Draw recent shots
     shotHistory.forEach((shot, index) => {
-        // Linear mapping: 10.9 is center (radius 0), 0.0 is outer edge (maxRadius)
-        // Adjust formula based on actual ISSF scale if needed.
-        const scoreRadius = maxRadius * ((10.9 - shot.score) / 10.9);
-        
-        const px = cx + scoreRadius * Math.cos(shot.angle);
-        const py = cy + scoreRadius * Math.sin(shot.angle);
-        
         const isLatest = index === shotHistory.length - 1;
-        
+        let r_mm = getRadiusFromScore(shot.score);
+        let px = cx + r_mm * scale * Math.cos(shot.angle);
+        let py = cy + r_mm * scale * Math.sin(shot.angle);
+
         vCtx.beginPath();
+        // Pellet size representation (visually scaled down a bit to see groupings easily)
         vCtx.arc(px, py, isLatest ? 6 : 4, 0, 2 * Math.PI);
         vCtx.fillStyle = isLatest ? '#ff2a2a' : 'rgba(255, 42, 42, 0.4)';
         vCtx.fill();
-        
+
         if (isLatest) {
             vCtx.shadowColor = '#ff2a2a';
             vCtx.shadowBlur = 10;
