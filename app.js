@@ -393,17 +393,53 @@ async function processFrames() {
                 const threshVal = parseInt(document.getElementById('redThreshold').value) || 100;
                 let mask = new cv.Mat();
 
-                let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, threshVal, threshVal, 0]);
+                // We are inside the pink box. There is NOTHING else red here except the laser dot.
+                // Therefore, we can be extremely forgiving with Saturation and Value to catch BOTH dark red and pale pink dots.
+                // We use the slider to allow the user to lower it further, but enforce a low base minimum.
+                let minS = Math.min(threshVal, 50); // Saturation can be as low as 50 (or lower if slider used)
+                let minV = 50; // Value can be as low as 50 (catches very dark red dots)
+
+                let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, minS, minV, 0]);
                 let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [15, 255, 255, 0]);
                 let mask1 = new cv.Mat();
                 cv.inRange(hsv, low1, high1, mask1);
 
-                let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [165, threshVal, threshVal, 0]);
+                let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [165, minS, minV, 0]);
                 let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 255, 255, 0]);
                 let mask2 = new cv.Mat();
                 cv.inRange(hsv, low2, high2, mask2);
 
                 cv.bitwise_or(mask1, mask2, mask);
+                
+                // --- Handle White-Blown Out Centers (Doughnut effect) ---
+                // Overexposed dots have white centers (0 saturation), leaving only a pink/red halo.
+                // We use a Morphological CLOSE operation to fill the hole and merge fragments.
+                let M_kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(9, 9));
+                cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, M_kernel);
+                M_kernel.delete();
+
+                // --- Handle Extreme White-Blown Out Centers (Completely white, no red halo) ---
+                // If it's a bright white streak, it won't have any red hue.
+                let lowWhite = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, 200, 0]);
+                let highWhite = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 80, 255, 0]);
+                let whiteMask = new cv.Mat();
+                cv.inRange(hsv, lowWhite, highWhite, whiteMask);
+                
+                // Exclude corners (where white text/logos live) using a circular mask
+                let circleMask = cv.Mat.zeros(hsv.rows, hsv.cols, cv.CV_8UC1);
+                cv.circle(circleMask, new cv.Point(hsv.cols/2, hsv.rows/2), Math.min(hsv.cols, hsv.rows)/2 * 0.9, new cv.Scalar(255), cv.FILLED);
+                cv.bitwise_and(whiteMask, circleMask, whiteMask);
+                circleMask.delete();
+
+                // Remove thin target rings using MORPH_OPEN (Erode then Dilate)
+                let openKernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+                cv.morphologyEx(whiteMask, whiteMask, cv.MORPH_OPEN, openKernel);
+                openKernel.delete();
+                
+                // Combine the standard red mask and the extreme white mask
+                cv.bitwise_or(mask, whiteMask, mask);
+                
+                lowWhite.delete(); highWhite.delete(); whiteMask.delete();
 
                 hsv.delete(); low1.delete(); high1.delete(); mask1.delete();
                 low2.delete(); high2.delete(); mask2.delete();
@@ -742,9 +778,29 @@ function drawVirtualTarget() {
     const h = vTarget.height;
     const cx = w / 2;
     const cy = h / 2;
-    // The max physical radius we draw is the 1-point ring: 23.0mm
-    // Scale so 23.0mm fits nicely in the canvas (leaving a 10px margin)
-    const scale = (w / 2 - 10) / 23.0;
+    // Find the lowest score to determine the zoom level
+    let minScore = 10.9;
+    if (shotHistory.length > 0) {
+        minScore = Math.min(...shotHistory.map(s => s.score));
+    }
+
+    // Determine margin based on user request (1.0 for 10s, 0.5 for others)
+    let margin = (minScore >= 10.0) ? 1.0 : 0.5;
+    let targetVisibleScore = Math.max(1.0, minScore - margin);
+
+    // Calculate physical radius of the target visible score
+    let maxRadius_mm;
+    if (targetVisibleScore >= 10.0) {
+        maxRadius_mm = ((10.9 - targetVisibleScore) / 0.9) * 0.5;
+    } else {
+        maxRadius_mm = 0.5 + (10 - targetVisibleScore) * 2.5;
+    }
+    
+    // Ensure we at least show the 10-point ring to avoid infinite scale
+    maxRadius_mm = Math.max(maxRadius_mm, 0.5);
+
+    // Scale so maxRadius_mm fits nicely in the canvas (leaving a 10px margin)
+    const scale = (w / 2 - 10) / maxRadius_mm;
 
     vCtx.clearRect(0, 0, w, h);
 
