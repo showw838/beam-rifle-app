@@ -716,14 +716,11 @@ async function processFrames() {
 // Data Logic
 function getRadiusFromScore(score) {
     if (score >= 10.0) {
-        // 10.0 to 10.9: 1.0mm diameter (0.5mm radius) divided into 10 parts
-        return 0.5 * (10.9 - score) / 0.9;
+        // 10.0 is 2.75mm from center, 10.9 is 0mm from center
+        return 2.75 * (10.9 - score) / 0.9;
     } else if (score >= 1.0) {
-        // 1.0 to 9.9
-        let I = Math.floor(score);
-        let D = score - I;
-        let R_out = 0.5 + (10 - I) * 2.5; // Outer radius of ring I
-        return R_out - D * (2.5 / 0.9);
+        // 10.0 is 2.75mm, each 1.0 drop adds 2.5mm
+        return 2.75 + (10.0 - score) * 2.5;
     }
     return 0; // Miss or out of bounds
 }
@@ -791,9 +788,9 @@ function drawVirtualTarget() {
     // Calculate physical radius of the target visible score
     let maxRadius_mm;
     if (targetVisibleScore >= 10.0) {
-        maxRadius_mm = ((10.9 - targetVisibleScore) / 0.9) * 0.5;
+        maxRadius_mm = ((10.9 - targetVisibleScore) / 0.9) * 2.75;
     } else {
-        maxRadius_mm = 0.5 + (10 - targetVisibleScore) * 2.5;
+        maxRadius_mm = 2.75 + (10.0 - targetVisibleScore) * 2.5;
     }
     
     // Ensure we at least show the 10-point ring to avoid infinite scale
@@ -840,9 +837,10 @@ function drawVirtualTarget() {
         let py = cy + r_mm * scale * Math.sin(shot.angle);
 
         vCtx.beginPath();
-        // Pellet size representation (visually scaled down a bit to see groupings easily)
-        vCtx.arc(px, py, isLatest ? 6 : 4, 0, 2 * Math.PI);
-        vCtx.fillStyle = isLatest ? '#ff2a2a' : 'rgba(255, 42, 42, 0.4)';
+        // Pellet size representation: 4.5mm diameter (2.25mm radius)
+        let bulletRadius = 2.25 * scale;
+        vCtx.arc(px, py, bulletRadius, 0, 2 * Math.PI);
+        vCtx.fillStyle = isLatest ? 'rgba(255, 42, 42, 0.8)' : 'rgba(255, 42, 42, 0.4)';
         vCtx.fill();
 
         if (isLatest) {
