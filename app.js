@@ -404,6 +404,8 @@ async function startCamera() {
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+            const resEl = document.getElementById('camRes');
+            if (resEl) resEl.innerText = `${video.videoWidth}x${video.videoHeight}`;
             isRunning = true;
             processFrames();
         };
