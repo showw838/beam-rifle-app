@@ -178,6 +178,12 @@ function drawRemoteOverlay() {
     if (!lastPreviewImage) return;
     const ctx = canvas.getContext('2d');
     
+    // Ensure the canvas matches the actual image aspect ratio to avoid stretching
+    if (canvas.width !== lastPreviewImage.width || canvas.height !== lastPreviewImage.height) {
+        canvas.width = lastPreviewImage.width;
+        canvas.height = lastPreviewImage.height;
+    }
+    
     // Clear and draw the preview image
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(lastPreviewImage, 0, 0, canvas.width, canvas.height);
