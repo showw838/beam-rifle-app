@@ -20,17 +20,27 @@ document.querySelectorAll('input[name="appMode"]').forEach(radio => {
         document.getElementById('monitorConnectionUI').style.display = !isCamera ? 'block' : 'none';
         
         const mainEl = document.getElementById('mainContent');
+        
+        // In both modes, we keep the camera section visible so we can use sliders and see the preview.
+        document.querySelector('.camera-section').style.display = 'flex';
+        
         if (isCamera) {
-            document.querySelector('.camera-section').style.display = 'flex';
+            document.getElementById('videoElement').style.display = 'block';
+            document.querySelector('.overlay-ui').style.display = 'flex';
             mainEl.style.gridTemplateColumns = ''; // Reset to CSS default (responsive)
         } else {
-            document.querySelector('.camera-section').style.display = 'none';
-            // On PC, we want Target + History side by side when camera is hidden
+            document.getElementById('videoElement').style.display = 'none';
+            document.querySelector('.overlay-ui').style.display = 'none';
+            
+            // On PC, we want Camera Preview + Target + History side by side
             if (window.innerWidth > 1024) {
-                mainEl.style.gridTemplateColumns = '1fr 300px';
+                mainEl.style.gridTemplateColumns = '1.2fr 1fr 300px';
             } else {
                 mainEl.style.gridTemplateColumns = '';
             }
+            
+            // Make canvas look like a black screen until preview arrives
+            document.getElementById('canvasElement').style.backgroundColor = '#000';
         }
         
         if (!isCamera && videoStream) {
@@ -58,6 +68,25 @@ document.getElementById('hostBtn').addEventListener('click', () => {
         conn = connection;
         display.innerText = `接続完了！ (PIN: ${pin})`;
         display.style.color = '#00ff00';
+        
+        // Handle incoming messages on Camera side
+        conn.on('data', (data) => {
+            if (data.type === 'config') {
+                // Update local sliders/state with PC's config
+                const cfg = data.config;
+                if(cfg.zoom !== undefined) document.getElementById('zoomSlider').value = cfg.zoom;
+                if(cfg.panX !== undefined) document.getElementById('panXSlider').value = cfg.panX;
+                if(cfg.panY !== undefined) document.getElementById('panYSlider').value = cfg.panY;
+                if(cfg.blueX !== undefined) document.getElementById('blueXSlider').value = cfg.blueX;
+                if(cfg.blueY !== undefined) document.getElementById('blueYSlider').value = cfg.blueY;
+                if(cfg.blueScale !== undefined) document.getElementById('blueScaleSlider').value = cfg.blueScale;
+                if(cfg.pinkX !== undefined) document.getElementById('pinkXSlider').value = cfg.pinkX;
+                if(cfg.pinkY !== undefined) document.getElementById('pinkYSlider').value = cfg.pinkY;
+                if(cfg.pinkScale !== undefined) document.getElementById('pinkScaleSlider').value = cfg.pinkScale;
+                if(cfg.redThreshold !== undefined) document.getElementById('redThreshold').value = cfg.redThreshold;
+                if(cfg.ocrThreshold !== undefined) document.getElementById('ocrThreshold').value = cfg.ocrThreshold;
+            }
+        });
     });
 });
 
@@ -84,6 +113,22 @@ document.getElementById('joinBtn').addEventListener('click', () => {
             if (data.type === 'score') {
                 document.getElementById('currentScore').innerText = data.score.toFixed(1);
                 recordShot(data.score, data.angle || 0);
+            } else if (data.type === 'preview') {
+                let img = new Image();
+                img.onload = () => {
+                    lastPreviewImage = img;
+                    drawRemoteOverlay();
+                };
+                img.src = data.image;
+            } else if (data.type === 'debug_frame') {
+                let img = new Image();
+                img.onload = () => {
+                    const dCtx = debugCanvas.getContext('2d');
+                    debugCanvas.width = img.width;
+                    debugCanvas.height = img.height;
+                    dCtx.drawImage(img, 0, 0);
+                };
+                img.src = data.image;
             }
         });
         
@@ -108,6 +153,76 @@ const clearBtn = document.getElementById('clearBtn');
 const vTarget = document.getElementById('virtualTarget');
 const vCtx = vTarget.getContext('2d');
 
+// --- PC Remote Control Logic ---
+function sendConfig() {
+    if (!conn || !conn.open || document.querySelector('input[name="appMode"]:checked').value === 'camera') return;
+    const config = {
+        zoom: parseFloat(document.getElementById('zoomSlider').value),
+        panX: parseFloat(document.getElementById('panXSlider').value),
+        panY: parseFloat(document.getElementById('panYSlider').value),
+        blueX: parseFloat(document.getElementById('blueXSlider').value),
+        blueY: parseFloat(document.getElementById('blueYSlider').value),
+        blueScale: parseFloat(document.getElementById('blueScaleSlider').value),
+        pinkX: parseFloat(document.getElementById('pinkXSlider').value),
+        pinkY: parseFloat(document.getElementById('pinkYSlider').value),
+        pinkScale: parseFloat(document.getElementById('pinkScaleSlider').value),
+        redThreshold: parseInt(document.getElementById('redThreshold').value),
+        ocrThreshold: parseInt(document.getElementById('ocrThreshold').value)
+    };
+    conn.send({ type: 'config', config: config });
+}
+
+let lastPreviewImage = null; // Store the latest received preview image
+
+function drawRemoteOverlay() {
+    if (!lastPreviewImage) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Clear and draw the preview image
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(lastPreviewImage, 0, 0, canvas.width, canvas.height);
+    
+    // Calculate and draw the blue/pink boxes over the preview to give instant feedback to PC user
+    let blueX = parseFloat(document.getElementById('blueXSlider').value) || 0;
+    let blueY = parseFloat(document.getElementById('blueYSlider').value) || 0;
+    let blueScale = parseFloat(document.getElementById('blueScaleSlider').value) || 1;
+    let pinkX = parseFloat(document.getElementById('pinkXSlider').value) || 0;
+    let pinkY = parseFloat(document.getElementById('pinkYSlider').value) || 0;
+    let pinkScale = parseFloat(document.getElementById('pinkScaleSlider').value) || 1;
+    
+    const cw = canvas.width;
+    const ch = canvas.height;
+    
+    let bw = cw * 0.35 * blueScale;
+    let bh = ch * 0.25 * blueScale;
+    let bx = blueX * (cw - bw);
+    let by = blueY * (ch - bh);
+    
+    let pw = cw * 0.45 * pinkScale;
+    let ph = pw; // 1:1 ratio
+    let px = pinkX * (cw - pw);
+    let py = pinkY * (ch - ph);
+    
+    // Draw Blue Box (Score Area)
+    ctx.strokeStyle = '#00ffff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.strokeRect(bx, by, bw, bh);
+    
+    // Draw Pink Box (Target Area)
+    ctx.strokeStyle = '#ff00ff';
+    ctx.strokeRect(px, py, pw, ph);
+    ctx.setLineDash([]);
+}
+
+document.querySelectorAll('.controls input[type="range"]').forEach(slider => {
+    slider.addEventListener('input', () => {
+        if (document.querySelector('input[name="appMode"]:checked').value === 'monitor') {
+            sendConfig();
+            drawRemoteOverlay();
+        }
+    });
+});
 
 const toggleOcrBtn = document.getElementById('toggleOcrBtn');
 
@@ -710,6 +825,32 @@ async function processFrames() {
         }
     }
     
+    // --- PC Remote Control: Send preview frames to monitor ---
+    const appMode = document.querySelector('input[name="appMode"]:checked').value;
+    if (appMode === 'camera' && conn && conn.open) {
+        window.lastPreviewSentTime = window.lastPreviewSentTime || 0;
+        let now = performance.now();
+        if (now - window.lastPreviewSentTime > 500) {
+            window.lastPreviewSentTime = now;
+            
+            // Create a low-res preview of the raw video
+            let pCanvas = document.createElement('canvas');
+            pCanvas.width = 640;
+            pCanvas.height = Math.floor(640 * (video.videoHeight / (video.videoWidth || 1)));
+            if (pCanvas.height > 0) {
+                let pCtx = pCanvas.getContext('2d');
+                pCtx.drawImage(video, 0, 0, pCanvas.width, pCanvas.height);
+                conn.send({ type: 'preview', image: pCanvas.toDataURL('image/jpeg', 0.5) });
+            }
+            
+            // Also send the OCR debug canvas
+            let debugCanvas = document.getElementById('debugCanvas');
+            if (isOcrActive && debugCanvas.width > 0) {
+                conn.send({ type: 'debug_frame', image: debugCanvas.toDataURL('image/jpeg', 0.6) });
+            }
+        }
+    }
+
     requestAnimationFrame(processFrames);
 }
 
