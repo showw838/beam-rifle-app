@@ -345,18 +345,61 @@ setTimeout(() => {
     }
 }, 5000);
 
-// Start Camera
-startBtn.addEventListener('click', async () => {
-    if (isRunning) return;
-    
+// Camera Selection and Start Logic
+async function populateCameras() {
+    const select = document.getElementById('cameraSelect');
+    if (!select) return;
     try {
-        videoStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } } 
-        });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        
+        // Only repopulate if we actually got labels (meaning permission was granted)
+        if (videoDevices.length > 0 && videoDevices[0].label) {
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">(Auto) Default Camera</option>';
+            videoDevices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `Camera ${select.length}`;
+                select.appendChild(option);
+            });
+            select.value = currentVal; // Restore previous selection if possible
+        }
+    } catch (e) {
+        console.error("Camera enumeration failed", e);
+    }
+}
+
+async function startCamera() {
+    // If already running, stop the current stream to allow switching lenses
+    if (isRunning && videoStream) {
+        videoStream.getTracks().forEach(t => t.stop());
+        isRunning = false;
+    }
+
+    try {
+        const select = document.getElementById('cameraSelect');
+        const deviceId = select ? select.value : "";
+        
+        let videoConstraints = {
+            width: { ideal: 4096 },
+            height: { ideal: 2160 },
+            advanced: [{ focusMode: "continuous" }]
+        };
+
+        if (deviceId) {
+            videoConstraints.deviceId = { exact: deviceId };
+        } else {
+            videoConstraints.facingMode = "environment";
+        }
+
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
         video.srcObject = videoStream;
         document.querySelector('.video-container').classList.add('active');
-        console.log('OpenCV is ready.');
         
+        // Now that we have permissions, fetch the real camera names
+        populateCameras();
+
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -364,10 +407,24 @@ startBtn.addEventListener('click', async () => {
             processFrames();
         };
     } catch (err) {
-        console.error("Camera error: ", err);
-        alert("Camera access denied or not available.");
+        console.error("Error accessing camera:", err);
+        const errDiv = document.getElementById('debugError');
+        errDiv.style.display = 'block';
+        errDiv.innerText = "Error: " + err.message + "\nカメラのアクセス権限を確認してください。";
     }
-});
+}
+
+startBtn.addEventListener('click', startCamera);
+
+// Allow switching cameras on the fly if already running
+const cameraSelectEl = document.getElementById('cameraSelect');
+if (cameraSelectEl) {
+    cameraSelectEl.addEventListener('change', () => {
+        if (videoStream) {
+            startCamera();
+        }
+    });
+}
 
 // Load Test Video
 videoInput.addEventListener('change', (e) => {
