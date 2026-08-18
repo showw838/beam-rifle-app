@@ -401,14 +401,26 @@ async function startCamera() {
         // Now that we have permissions, fetch the real camera names
         populateCameras();
 
-        video.onloadedmetadata = () => {
+        const startProcessing = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             const resEl = document.getElementById('camRes');
-            if (resEl) resEl.innerText = `${video.videoWidth}x${video.videoHeight}`;
-            isRunning = true;
-            processFrames();
+            if (resEl) {
+                resEl.style.left = '5px';
+                resEl.style.right = 'auto';
+                resEl.innerText = `${video.videoWidth}x${video.videoHeight}`;
+            }
+            if (!isRunning) {
+                isRunning = true;
+                processFrames();
+            }
         };
+
+        if (video.readyState >= 1) {
+            startProcessing();
+        } else {
+            video.onloadedmetadata = startProcessing;
+        }
     } catch (err) {
         console.error("Error accessing camera:", err);
         const errDiv = document.getElementById('debugError');
