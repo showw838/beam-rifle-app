@@ -188,36 +188,44 @@ function drawRemoteOverlay() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(lastPreviewImage, 0, 0, canvas.width, canvas.height);
     
-    // Calculate and draw the blue/pink boxes over the preview to give instant feedback to PC user
-    let blueX = parseFloat(document.getElementById('blueXSlider').value) || 0;
-    let blueY = parseFloat(document.getElementById('blueYSlider').value) || 0;
-    let blueScale = parseFloat(document.getElementById('blueScaleSlider').value) || 1;
-    let pinkX = parseFloat(document.getElementById('pinkXSlider').value) || 0;
-    let pinkY = parseFloat(document.getElementById('pinkYSlider').value) || 0;
-    let pinkScale = parseFloat(document.getElementById('pinkScaleSlider').value) || 1;
-    
     const cw = canvas.width;
     const ch = canvas.height;
     
-    let bw = cw * 0.35 * blueScale;
-    let bh = ch * 0.25 * blueScale;
-    let bx = blueX * (cw - bw);
-    let by = blueY * (ch - bh);
+    // Exact same calculation as Camera Mode to ensure 1:1 accuracy
+    let baseSize = Math.min(cw, ch);
     
-    let pw = cw * 0.45 * pinkScale;
-    let ph = pw; // 1:1 ratio
-    let px = pinkX * (cw - pw);
-    let py = pinkY * (ch - ph);
+    let blueX = parseFloat(document.getElementById('blueXSlider').value) || 0.1;
+    let blueY = parseFloat(document.getElementById('blueYSlider').value) || 0.35;
+    let blueScale = parseFloat(document.getElementById('blueScaleSlider').value) || 1;
+    
+    let pinkX = parseFloat(document.getElementById('pinkXSlider').value) || 0.55;
+    let pinkY = parseFloat(document.getElementById('pinkYSlider').value) || 0.35;
+    let pinkScale = parseFloat(document.getElementById('pinkScaleSlider').value) || 1;
+    
+    // Use the hardcoded constants from app.js
+    const scoreRect = { w: 0.35, h: 0.266 };
+    const targetRect = { w: 0.533, h: 0.533 };
+    
+    let sX = blueX * cw;
+    let sY = blueY * ch;
+    let sW = scoreRect.w * baseSize * blueScale;
+    let sH = scoreRect.h * baseSize * blueScale;
+    
+    let tX = pinkX * cw;
+    let tY = pinkY * ch;
+    let tW = targetRect.w * baseSize * pinkScale;
+    let tH = targetRect.h * baseSize * pinkScale;
+    
+    ctx.setLineDash([8, 8]);
     
     // Draw Blue Box (Score Area)
     ctx.strokeStyle = '#00ffff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.strokeRect(bx, by, bw, bh);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(sX, sY, sW, sH);
     
     // Draw Pink Box (Target Area)
     ctx.strokeStyle = '#ff00ff';
-    ctx.strokeRect(px, py, pw, ph);
+    ctx.strokeRect(tX, tY, tW, tH);
     ctx.setLineDash([]);
 }
 
