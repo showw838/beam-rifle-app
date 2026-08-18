@@ -354,16 +354,17 @@ async function populateCameras() {
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
         
         // Only repopulate if we actually got labels (meaning permission was granted)
-        if (videoDevices.length > 0 && videoDevices[0].label) {
+        if (videoDevices.length > 0) {
             const currentVal = select.value;
             select.innerHTML = '<option value="">(Auto) Default Camera</option>';
-            videoDevices.forEach(device => {
+            videoDevices.forEach((device, index) => {
                 const option = document.createElement('option');
                 option.value = device.deviceId;
-                option.text = device.label || `Camera ${select.length}`;
+                let labelName = device.label || `Camera ${index + 1} (${device.deviceId ? device.deviceId.substring(0, 5) + '...' : 'Unknown'})`;
+                option.text = labelName;
                 select.appendChild(option);
             });
-            select.value = currentVal; // Restore previous selection if possible
+            select.value = currentVal;
         }
     } catch (e) {
         console.error("Camera enumeration failed", e);
@@ -1076,3 +1077,6 @@ clearBtn.addEventListener('click', () => {
 
 // Initial draw
 updateUI();
+
+// Populate immediately (might only show generic names if permissions arent granted yet)
+populateCameras();
